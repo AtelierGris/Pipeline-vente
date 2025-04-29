@@ -1,4 +1,4 @@
-import { LeadFormData, PriorityCategory, ScoringWeights, PriorityThresholds, DealbreakerSettings, DealbreakerResult, ScoreDimensions, LeadOpportunityProfile, EstimatorType, LeadScores } from '../types/lead';
+import { LeadFormData, PriorityCategory, ScoringWeights, PriorityThresholds, ScoreDimensions, LeadOpportunityProfile, EstimatorType, LeadScores } from '../types/lead';
 
 const DEFAULT_WEIGHTS: ScoringWeights = {
   leadTime: {
@@ -210,7 +210,7 @@ const assignEstimator = (profile: LeadOpportunityProfile): EstimatorType => {
 export const processLead = (lead: LeadFormData, weights: ScoringWeights = DEFAULT_WEIGHTS) => {
   const scores = calculateScores(lead, weights);
   const profile = determineLeadOpportunityProfile(scores);
-  const estimator = assignSpecialist(profile, lead);
+  const estimator = assignEstimator(profile);
 
   return {
     ...scores,
