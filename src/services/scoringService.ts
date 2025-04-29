@@ -1,33 +1,56 @@
-import { LeadFormData, PriorityCategory, ScoringWeights, PriorityThresholds, DealbreakerSettings, DealbreakerResult, ScoreDimensions } from '../types/lead';
+import { LeadFormData, PriorityCategory, ScoringWeights, PriorityThresholds, DealbreakerSettings, DealbreakerResult, ScoreDimensions, LeadOpportunityProfile, EstimatorType, LeadScores } from '../types/lead';
 
 const DEFAULT_WEIGHTS: ScoringWeights = {
   leadTime: {
-    urgent: 3,
-    flexible: 2,
-    long_term: 1
+    asap: 5,
+    within_1_month: 4,
+    '1_3_months': 3,
+    '3_6_months': 2,
+    over_6_months: 1
+  },
+  deliveryFlexibility: {
+    firm_date: 5,
+    very_flexible: 1
   },
   finishQuality: {
     basic: 1,
-    standard: 2,
-    premium: 3,
+    mid_range: 2,
+    high_end: 3,
     luxury: 4
   },
   professionals: {
-    designer: 2,
     architect: 3,
+    interior_designer: 2,
     general_contractor: 2,
-    engineer: 3,
-    woodworker_artisan: 2
+    none: 1
   },
-  designFabricationRatio: {
-    mostly_design: 3,
-    balanced: 2,
-    mostly_fabrication: 1
+  projectType: {
+    new_build: 3,
+    major_renovation: 3,
+    addition: 2,
+    kitchen_bath_reno: 2,
+    specific_scope: 2,
+    commercial_fit_out: 3,
+    other: 1
   },
-  complexity: {
-    simple: 1,
-    moderate: 2,
-    complex: 3
+  jobSize: {
+    small: 1,
+    medium: 2,
+    large: 3,
+    very_large: 4
+  },
+  projectComplexity: {
+    very_simple: 1,
+    very_complex: 5
+  },
+  clarityOfMandate: {
+    vague_idea: 1,
+    detailed_plans: 5
+  },
+  projectSize: {
+    small: 1,
+    medium: 2,
+    large: 3
   },
   clientCategory: {
     large_architecture_firm: 4,
@@ -42,40 +65,20 @@ const DEFAULT_WEIGHTS: ScoringWeights = {
     new: 1,
     returning: 2
   },
-  projectSize: {
-    small: 1,
-    medium: 2,
-    large: 3
-  },
-  budgetRange: {
-    low: 1,
-    medium: 2,
-    high: 3
-  },
   timelineFlexibility: {
     strict: 1,
     moderate: 2,
     flexible: 3
   },
-  dimensionWeights: {
-    monetary: 0.3,
-    logistics: 0.3,
-    risk: 0.2,
-    addedValue: 0.2
+  complexity: {
+    simple: 1,
+    moderate: 2,
+    complex: 3
   },
-  clientValueRanking: {
-    big_contractor: 10,
-    large_architecture_firm: 9,
-    small_contractor: 8,
-    small_architecture_firm: 7,
-    designer: 6,
-    store: 5,
-    other: 4,
-    individual: 3
-  },
-  capacityThresholds: {
-    design: 100,
-    fabrication: 100
+  designFabricationRatio: {
+    mostly_design: 3,
+    balanced: 2,
+    mostly_fabrication: 1
   }
 };
 
@@ -87,6 +90,135 @@ const defaultThresholds: PriorityThresholds = {
   added_value_opportunity: 35
 };
 
+const getJobSizeCategory = (size: number): keyof ScoringWeights['jobSize'] => {
+  if (size <= 25000) return 'small';
+  if (size <= 100000) return 'medium';
+  if (size <= 500000) return 'large';
+  return 'very_large';
+};
+
+export const calculateScores = (lead: LeadFormData, weights: ScoringWeights): LeadScores => {
+  const scores: LeadScores = {
+    urgency: 0,
+    value: 0,
+    fit: 0,
+    total: 0
+  };
+
+  // Urgency Score
+  if (lead.leadTime && weights.leadTime[lead.leadTime]) {
+    scores.urgency += weights.leadTime[lead.leadTime];
+  }
+  if (lead.deliveryFlexibility) {
+    scores.urgency += weights.deliveryFlexibility[lead.deliveryFlexibility === 5 ? 'firm_date' : 'very_flexible'] || 0;
+  }
+  if (lead.projectType && weights.projectType[lead.projectType]) {
+    scores.urgency += weights.projectType[lead.projectType];
+  }
+
+  // Value Score
+  if (lead.jobSize) {
+    const jobSizeCategory = getJobSizeCategory(lead.jobSize);
+    scores.value += weights.jobSize[jobSizeCategory] || 0;
+  }
+  if (lead.finishQuality && weights.finishQuality[lead.finishQuality]) {
+    scores.value += weights.finishQuality[lead.finishQuality];
+  }
+  if (lead.projectComplexity) {
+    scores.value += weights.projectComplexity[lead.projectComplexity === 1 ? 'very_simple' : 'very_complex'] || 0;
+  }
+  if (lead.clarityOfMandate) {
+    scores.value += weights.clarityOfMandate[lead.clarityOfMandate === 1 ? 'vague_idea' : 'detailed_plans'] || 0;
+  }
+
+  // Fit Score
+  if (lead.professionals) {
+    scores.fit += weights.professionals.architect && lead.professionals.architect ? 1 : 0;
+    scores.fit += weights.professionals.interior_designer && lead.professionals.interior_designer ? 1 : 0;
+    scores.fit += weights.professionals.general_contractor && lead.professionals.general_contractor ? 1 : 0;
+    scores.fit += weights.professionals.none && lead.professionals.none ? 1 : 0;
+  }
+
+  // Additional scoring factors
+  if (lead.projectSize && weights.projectSize[lead.projectSize]) {
+    scores.value += weights.projectSize[lead.projectSize];
+  }
+  if (lead.clientCategory && weights.clientCategory[lead.clientCategory]) {
+    scores.value += weights.clientCategory[lead.clientCategory];
+  }
+  if (lead.clientType && weights.clientType[lead.clientType]) {
+    scores.value += weights.clientType[lead.clientType];
+  }
+  if (lead.timelineFlexibility && weights.timelineFlexibility[lead.timelineFlexibility]) {
+    scores.value += weights.timelineFlexibility[lead.timelineFlexibility];
+  }
+  if (lead.complexity && weights.complexity[lead.complexity]) {
+    scores.value += weights.complexity[lead.complexity];
+  }
+  if (lead.designFabricationRatio && weights.designFabricationRatio[lead.designFabricationRatio]) {
+    scores.value += weights.designFabricationRatio[lead.designFabricationRatio];
+  }
+
+  // Calculate total score
+  scores.total = scores.urgency + scores.value + scores.fit;
+
+  return scores;
+};
+
+const determineLeadOpportunityProfile = (scores: LeadScores): 'rush_simple' | 'rush_complex' | 'fast_easy' | 'high_value_strategic' | 'added_value_potential' | 'high_effort_qualify' | 'standard_project' => {
+  const { urgency, value, fit } = scores;
+
+  if (urgency > 4 && value < 3 && fit > 3) {
+    return 'rush_simple';
+  }
+  if (urgency > 4 && value >= 3) {
+    return 'rush_complex';
+  }
+  if (urgency <= 3 && value < 3 && fit > 3) {
+    return 'fast_easy';
+  }
+  if (value >= 4 && fit <= 2) {
+    return 'high_value_strategic';
+  }
+  if (value >= 3 && fit >= 4) {
+    return 'added_value_potential';
+  }
+  if (fit <= 2) {
+    return 'high_effort_qualify';
+  }
+  return 'standard_project';
+};
+
+const assignEstimator = (profile: LeadOpportunityProfile): EstimatorType => {
+  switch (profile) {
+    case 'fast_easy':
+    case 'rush_simple':
+      return 'estimator_a';
+    case 'standard_project':
+    case 'high_value_strategic':
+      return 'estimator_b';
+    case 'rush_complex':
+      return 'estimator_c';
+    case 'high_effort_qualify':
+    case 'added_value_potential':
+      return 'estimator_d';
+    default:
+      return 'estimator_b';
+  }
+};
+
+export const processLead = (lead: LeadFormData, weights: ScoringWeights = DEFAULT_WEIGHTS) => {
+  const scores = calculateScores(lead, weights);
+  const profile = determineLeadOpportunityProfile(scores);
+  const estimator = assignSpecialist(profile, lead);
+
+  return {
+    ...scores,
+    leadOpportunityProfile: profile,
+    assignedEstimator: estimator
+  };
+};
+
 export const calculateDimensionScores = (
   lead: LeadFormData,
   weights: ScoringWeights = DEFAULT_WEIGHTS
@@ -94,7 +226,7 @@ export const calculateDimensionScores = (
   // Monetary Value Score (0-1 range)
   const monetaryScore = Math.min(1, (
     (weights.projectSize[lead.projectSize] * 2) +
-    (weights.clientValueRanking[lead.clientCategory])
+    (weights.clientCategory[lead.clientCategory])
   ) / 10);
 
   // Logistics Score (0-1 range)
@@ -107,7 +239,7 @@ export const calculateDimensionScores = (
   ));
 
   // Risk Score (0-1 range)
-  const professionalCount = lead.professionals.length;
+  const professionalCount = Object.values(lead.professionals).filter(Boolean).length;
   const complexityScore = weights.complexity[lead.complexity];
   const riskScore = Math.min(1, (
     (complexityScore * leadTimeScore * (professionalCount < 2 ? 3 : professionalCount < 4 ? 2 : 1))
@@ -116,7 +248,7 @@ export const calculateDimensionScores = (
   // Added Value Score (0-1 range)
   const finishQualityScore = weights.finishQuality[lead.finishQuality];
   const addedValueScore = Math.min(1, (
-    (weights.clientValueRanking[lead.clientCategory] / 10) +
+    (weights.clientCategory[lead.clientCategory] / 10) +
     (lead.clientType === 'new' ? 1 : 0.5) +
     (finishQualityScore / 4)
   ) / 3);
@@ -136,10 +268,10 @@ export const calculateLeadScore = (
   const dimensions = calculateDimensionScores(lead, weights);
   
   const total = 
-    dimensions.monetary * weights.dimensionWeights.monetary +
-    dimensions.logistics * weights.dimensionWeights.logistics +
-    dimensions.risk * weights.dimensionWeights.risk +
-    dimensions.addedValue * weights.dimensionWeights.addedValue;
+    dimensions.monetary * 0.3 +
+    dimensions.logistics * 0.3 +
+    dimensions.risk * 0.2 +
+    dimensions.addedValue * 0.2;
 
   return { total, dimensions };
 };
@@ -162,34 +294,34 @@ export const determinePriorityCategory = (
 };
 
 export const assignSpecialist = (
-  priorityCategory: PriorityCategory,
+  priorityCategory: string,
   lead: LeadFormData
-): string => {
+): 'estimator_a' | 'estimator_b' | 'estimator_c' | 'estimator_d' => {
   // Estimator C specializes in complex, risky projects
   if (lead.complexity === 'complex' && 
-      (lead.leadTime === 'urgent' || lead.timelineFlexibility === 'strict') &&
+      (lead.leadTime === 'asap' || lead.timelineFlexibility === 'strict') &&
       lead.clientType === 'new' &&
-      lead.professionals.length <= 2) {
-    return "Estimateur C";
+      Object.values(lead.professionals).filter(Boolean).length <= 2) {
+    return 'estimator_c';
   }
 
   // Estimator B handles standard to premium projects with flexible timelines
-  if (lead.finishQuality === 'premium' || 
-      lead.finishQuality === 'standard' || 
+  if (lead.finishQuality === 'high_end' || 
+      lead.finishQuality === 'luxury' || 
       lead.timelineFlexibility === 'flexible') {
-    return "Estimateur B";
+    return 'estimator_b';
   }
 
   // Estimator A handles everything else (basic, quick turnaround projects)
-  return "Estimateur A";
+  return 'estimator_a';
 };
 
-export const checkDealbreakers = (formData: LeadFormData, settings: DealbreakerSettings): DealbreakerResult => {
+export const checkDealbreakers = (formData: LeadFormData, settings: any): { isDealbreaker: boolean; reasons: string[] } => {
   const reasons: string[] = [];
 
   // Check lead time
-  const minimumDays = settings.minimumLeadTime[formData.leadTime];
-  if (formData.leadTime === 'urgent' && minimumDays > 0) {
+  const minimumDays = settings.minimumLeadTime[formData.leadTime === 'asap' ? 'urgent' : formData.leadTime === 'within_1_month' ? 'flexible' : 'long_term'];
+  if (formData.leadTime === 'asap' && minimumDays > 0) {
     reasons.push(`Délai trop court (${minimumDays} jours minimum requis)`);
   }
 

@@ -5,23 +5,23 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Bauziet', 'sans-serif'],
+      },
       colors: {
         primary: '#0066FF',
         gray: {
-          50: '#F5F5F5',
-          100: '#E5E5E5',
-          200: '#D4D4D4',
-          300: '#C3C3C3',
-          400: '#A3A3A3',
-          500: '#737373',
-          600: '#525252',
-          700: '#404040',
-          800: '#262626',
-          900: '#171717',
+          50: '#F9FAFB',
+          100: '#F3F4F6',
+          200: '#E5E7EB',
+          300: '#D1D5DB',
+          400: '#9CA3AF',
+          500: '#6B7280',
+          600: '#4B5563',
+          700: '#374151',
+          800: '#1F2937',
+          900: '#111827',
         },
-      },
-      fontFamily: {
-        sans: ['Bauziet', 'sans-serif'],
       },
       spacing: {
         '1/3': '33.333333%',
@@ -32,7 +32,5 @@ module.exports = {
       },
     },
   },
-  plugins: [
-    require('@tailwindcss/forms'),
-  ],
+  plugins: [],
 } 
