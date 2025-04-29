@@ -1,6 +1,6 @@
-import { LeadFormData, PriorityCategory, ScoringWeights, PriorityThresholds } from '../types/lead';
+import { LeadFormData, PriorityCategory, ScoringWeights, PriorityThresholds, DealbreakerSettings, DealbreakerResult, ScoreDimensions } from '../types/lead';
 
-const defaultWeights: ScoringWeights = {
+const DEFAULT_WEIGHTS: ScoringWeights = {
   leadTime: {
     urgent: 3,
     flexible: 2,
@@ -29,6 +29,15 @@ const defaultWeights: ScoringWeights = {
     moderate: 2,
     complex: 3
   },
+  clientCategory: {
+    large_architecture_firm: 4,
+    small_architecture_firm: 3,
+    big_contractor: 4,
+    small_contractor: 3,
+    individual: 1,
+    store: 2,
+    other: 2
+  },
   clientType: {
     new: 1,
     returning: 2
@@ -47,6 +56,26 @@ const defaultWeights: ScoringWeights = {
     strict: 1,
     moderate: 2,
     flexible: 3
+  },
+  dimensionWeights: {
+    monetary: 0.3,
+    logistics: 0.3,
+    risk: 0.2,
+    addedValue: 0.2
+  },
+  clientValueRanking: {
+    big_contractor: 10,
+    large_architecture_firm: 9,
+    small_contractor: 8,
+    small_architecture_firm: 7,
+    designer: 6,
+    store: 5,
+    other: 4,
+    individual: 3
+  },
+  capacityThresholds: {
+    design: 100,
+    fabrication: 100
   }
 };
 
@@ -58,28 +87,61 @@ const defaultThresholds: PriorityThresholds = {
   added_value_opportunity: 35
 };
 
+export const calculateDimensionScores = (
+  lead: LeadFormData,
+  weights: ScoringWeights = DEFAULT_WEIGHTS
+): ScoreDimensions => {
+  // Monetary Value Score (0-1 range)
+  const monetaryScore = Math.min(1, (
+    (weights.projectSize[lead.projectSize] * 2) +
+    (weights.clientValueRanking[lead.clientCategory])
+  ) / 10);
+
+  // Logistics Score (0-1 range)
+  const leadTimeScore = weights.leadTime[lead.leadTime];
+  const sizeImpact = weights.projectSize[lead.projectSize];
+  const timelineFlexibility = weights.timelineFlexibility[lead.timelineFlexibility];
+  
+  const logisticsScore = Math.min(1, (
+    (leadTimeScore * sizeImpact * timelineFlexibility) / 27
+  ));
+
+  // Risk Score (0-1 range)
+  const professionalCount = lead.professionals.length;
+  const complexityScore = weights.complexity[lead.complexity];
+  const riskScore = Math.min(1, (
+    (complexityScore * leadTimeScore * (professionalCount < 2 ? 3 : professionalCount < 4 ? 2 : 1))
+  ) / 27);
+
+  // Added Value Score (0-1 range)
+  const finishQualityScore = weights.finishQuality[lead.finishQuality];
+  const addedValueScore = Math.min(1, (
+    (weights.clientValueRanking[lead.clientCategory] / 10) +
+    (lead.clientType === 'new' ? 1 : 0.5) +
+    (finishQualityScore / 4)
+  ) / 3);
+
+  return {
+    monetary: monetaryScore,
+    logistics: logisticsScore,
+    risk: riskScore,
+    addedValue: addedValueScore
+  };
+};
+
 export const calculateLeadScore = (
   lead: LeadFormData,
-  weights: ScoringWeights = defaultWeights
-): number => {
-  let score = 0;
+  weights: ScoringWeights = DEFAULT_WEIGHTS
+): { total: number; dimensions: ScoreDimensions } => {
+  const dimensions = calculateDimensionScores(lead, weights);
+  
+  const total = 
+    dimensions.monetary * weights.dimensionWeights.monetary +
+    dimensions.logistics * weights.dimensionWeights.logistics +
+    dimensions.risk * weights.dimensionWeights.risk +
+    dimensions.addedValue * weights.dimensionWeights.addedValue;
 
-  // Add base scores
-  score += weights.leadTime[lead.leadTime];
-  score += weights.finishQuality[lead.finishQuality];
-  score += weights.designFabricationRatio[lead.designFabricationRatio];
-  score += weights.complexity[lead.complexity];
-  score += weights.clientType[lead.clientType];
-  score += weights.projectSize[lead.projectSize];
-  score += weights.budgetRange[lead.budgetRange];
-  score += weights.timelineFlexibility[lead.timelineFlexibility];
-
-  // Add professional scores
-  lead.professionals.forEach(professional => {
-    score += weights.professionals[professional];
-  });
-
-  return score;
+  return { total, dimensions };
 };
 
 export const determinePriorityCategory = (
@@ -101,18 +163,54 @@ export const determinePriorityCategory = (
 
 export const assignSpecialist = (
   priorityCategory: PriorityCategory,
-  score: number
-): 'A' | 'B' | 'C' => {
-  switch (priorityCategory) {
-    case 'good_easy_quick':
-      return 'A';
-    case 'big_and_tough':
-      return 'B';
-    case 'risky':
-    case 'added_value_opportunity':
-      return 'C';
-    default:
-      // For 'good_but_save_for_later', assign based on score
-      return score > 20 ? 'B' : 'A';
+  lead: LeadFormData
+): string => {
+  // Estimator C specializes in complex, risky projects
+  if (lead.complexity === 'complex' && 
+      (lead.leadTime === 'urgent' || lead.timelineFlexibility === 'strict') &&
+      lead.clientType === 'new' &&
+      lead.professionals.length <= 2) {
+    return "Estimateur C";
   }
+
+  // Estimator B handles standard to premium projects with flexible timelines
+  if (lead.finishQuality === 'premium' || 
+      lead.finishQuality === 'standard' || 
+      lead.timelineFlexibility === 'flexible') {
+    return "Estimateur B";
+  }
+
+  // Estimator A handles everything else (basic, quick turnaround projects)
+  return "Estimateur A";
+};
+
+export const checkDealbreakers = (formData: LeadFormData, settings: DealbreakerSettings): DealbreakerResult => {
+  const reasons: string[] = [];
+
+  // Check lead time
+  const minimumDays = settings.minimumLeadTime[formData.leadTime];
+  if (formData.leadTime === 'urgent' && minimumDays > 0) {
+    reasons.push(`Délai trop court (${minimumDays} jours minimum requis)`);
+  }
+
+  // Check professionals count
+  const professionalsCount = Object.values(formData.professionals).filter(Boolean).length;
+  if (professionalsCount < settings.minimumProfessionals) {
+    reasons.push(`Nombre insuffisant de professionnels (${settings.minimumProfessionals} minimum requis)`);
+  }
+
+  // Check complexity
+  if (settings.maximumComplexity[formData.complexity]) {
+    reasons.push(`Niveau de complexité trop élevé`);
+  }
+
+  // Check design ratio
+  if (formData.designFabricationRatio === 'mostly_design' && settings.minimumDesignRatio > 0) {
+    reasons.push(`Ratio design/fabrication trop élevé`);
+  }
+
+  return {
+    isDealbreaker: reasons.length > 0,
+    reasons
+  };
 }; 
